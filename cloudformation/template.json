@@ -1,0 +1,275 @@
+{
+  "Description":"GFS style backup tool for Amazon RDS Aurora",
+  "AWSTemplateFormatVersion":"2010-09-09",
+   "Parameters":{
+      "DatabaseNames":{
+        "Type": "CommaDelimitedList",
+        "Default": "ALL",
+        "Description": "Comma separated list of Database Clusters to backup.  Use All to backup all clusters"
+      },
+      "BackupTime":{
+         "Type":"Number",
+         "Default":0,
+         "MinValue": 0,
+         "MaxValue": 24,
+         "Description":"Daily hour to run backup script.  Time is in UTC.  Default is 0(Midnight)"
+      },
+      "WeeklyRetention":{
+         "Type": "Number",
+         "Default": 4,
+         "MinValue": 0,
+         "MaxValue": 4,
+         "Description": "Retention time for weekly backups. This value determines how many weeks to keep weekly snapshots. The default value is 4. 0 Turns the weekly backups off."
+      },
+      "WeeklyBackupDay":{
+         "Type":"String",
+         "Default":"Sunday",
+         "Description":"Day of the week to take weekly snapshot.  Default is Sunday.  If WeeklyRetention is set to 0 this is ignored.",
+         "AllowedValues": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+      },
+      "MonthlyRetention":{
+         "Type": "Number",
+         "Default": 4,
+         "MinValue": 0,
+         "MaxValue": 12,
+         "Description": "Retention time for monthly backups. This value determines how many months to keep monthly snapshots. The default value is 4. 0 turns the monthly backups off."
+      },
+      "BackupDate":{
+         "Type":"Number",
+         "Default":1,
+         "Description":"Day of the month to take Monthly and/or Yearly Backups.  Default is 1.  Allowed values are 1-28.",
+         "MinValue": 1,
+         "MaxValue": 28
+      },
+      "YearlyRetention":{
+         "Type": "Number",
+         "Default": 2,
+         "MinValue": 0,
+         "Description": "Retention time for yearly backups. This value determines how many years to keep yearly snapshots. The default value is 2. 0 turns the yearly backups off."
+      },
+      "BackupMonth":{
+         "Type":"String",
+         "Default":"January",
+         "Description":"Month of the year to take the yearly snapshot.  Combined with BackupDate to determine when yearly backups are taken.  Ignored if YearlyRetention is set to 0.  Default is January.",
+         "AllowedValues": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+      },
+      "LogLevel":{
+         "Type":"String",
+         "Default":"INFO",
+         "Description":"Log level for Lambda functions (DEBUG, INFO, ERROR are valid values).",
+         "AllowedValues": ["DEBUG", "INFO", "ERROR"]
+      },
+      "Email": {
+        "Type": "String",
+        "Description": "(Optional) Email to notify if script fails",
+        "AllowedPattern": "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+      }
+   },
+   "Conditions": {
+      "EmailProvided": {"Fn::Not": [{"Fn::Equals": ["", {"Ref": "Email"}]}]}
+   },
+   "Metadata" : {
+      "AWS::CloudFormation::Interface" : {
+        "ParameterGroups" : [
+          {
+            "Label" : { "default" : "General Configuration" },
+            "Parameters" : [ "DatabaseNames", "BackupTime", "LogLevel", "Email" ]
+          },
+          {
+            "Label" : { "default":"Backup Retention Configuration" },
+            "Parameters" : [ "WeeklyRetention", "WeeklyBackupDay" , "MonthlyRetention", "BackupDate", "YearlyRetention", "BackupMonth"]
+          }
+        ]
+      }
+   },
+   "Resources": {
+     "iamroleSnapshotsAurora": {
+       "Type": "AWS::IAM::Role",
+       "Properties": {
+         "AssumeRolePolicyDocument": {
+           "Version": "2012-10-17",
+           "Statement": [
+             {
+               "Effect": "Allow",
+               "Principal": {
+                 "Service": "lambda.amazonaws.com"
+               },
+               "Action": "sts:AssumeRole"
+             }
+           ]
+         },
+         "Policies": [
+           {
+             "PolicyName": "allow_logging",
+             "PolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [
+                 {
+                   "Effect": "Allow",
+                   "Action": [
+                     "logs:CreateLogGroup",
+                     "logs:CreateLogStream",
+                     "logs:PutLogEvents"
+                   ],
+                   "Resource": "arn:aws:logs:*:*:*"
+                 }
+               ]
+             }
+           },
+           {
+             "PolicyName": "snapshot_access",
+             "PolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [
+                 {
+                   "Effect": "Allow",
+                   "Action": [
+                     "rds:CreateDBClusterSnapshot",
+                     "rds:DeleteDBClusterSnapshot",
+                     "rds:DescribeDBClusters",
+                     "rds:DescribeDBClusterSnapshots",
+                     "rds:ListTagsForResource"
+                   ],
+                   "Resource": "*"
+                 }
+               ]
+             }
+           }
+         ]
+       }
+     },
+     "lambdaFunction": {
+       "Type": "AWS::Lambda::Function",
+       "Properties": {
+         "Code": "../lambda_code/",
+         "Description": "This functions creates snapshots of Aurora Clusters.  It uses a GFS backup strategy to store the backups in a hierarchical fashiom.",
+         "MemorySize": 512,
+         "Environment": {
+           "Variables": {
+             "DatabaseNames": {
+               "Fn::Join": [
+                 ",",
+                 {
+                   "Ref": "DatabaseNames"
+                 }
+               ]
+             },
+             "WeeklyRetention": {
+               "Ref": "WeeklyRetention"
+             },
+             "WeeklyBackupDay": {
+               "Ref": "WeeklyBackupDay"
+             },
+             "MonthlyRetention": {
+               "Ref": "MonthlyRetention"
+             },
+             "BackupDate": {
+               "Ref": "BackupDate"
+             },
+             "YearlyRetention": {
+               "Ref": "YearlyRetention"
+             },
+             "BackupMonth": {
+               "Ref": "BackupMonth"
+             },
+             "LogLevel": {
+               "Ref": "LogLevel"
+             }
+           }
+         },
+         "Role": {
+           "Fn::GetAtt": [
+             "iamroleSnapshotsAurora",
+             "Arn"
+           ]
+         },
+         "Runtime": "python3.6",
+         "Handler": "lambda_function.lambda_handler",
+         "Timeout": 300
+       }
+     },
+     "TakeSnapRule": {
+       "Type": "AWS::Events::Rule",
+       "Properties": {
+         "Name": "TakeSnapshot",
+         "ScheduleExpression": {
+           "Fn::Join": [
+             "",
+             [
+               "cron(0 ",
+               {
+                 "Ref": "BackupTime"
+               },
+               " * * ? *)"
+             ]
+           ]
+         },
+         "State": "ENABLED",
+         "Targets": [
+           {
+             "Arn": {
+               "Fn::GetAtt": [
+                 "lambdaFunction",
+                 "Arn"
+               ]
+             },
+             "Id": "TakeSnapshotScheduler"
+           }
+         ]
+       }
+     },
+     "LambdaInvokePermission": {
+       "Type": "AWS::Lambda::Permission",
+       "Properties": {
+         "FunctionName": {
+           "Fn::GetAtt": [
+             "lambdaFunction",
+             "Arn"
+           ]
+         },
+         "Action": "lambda:InvokeFunction",
+         "Principal": "events.amazonaws.com",
+         "SourceArn": {
+           "Fn::GetAtt": [
+             "TakeSnapRule",
+             "Arn"
+           ]
+         }
+       }
+     },
+     "SNSTopic" : {
+        "Type" : "AWS::SNS::Topic",
+        "Condition": "EmailProvided",
+        "Properties" : {
+            "Subscription" : [ {
+                "Endpoint" : {"Ref": "Email"},
+                "Protocol" : "email"
+            } ]
+        }
+    },
+     "LambdaErrorAlarm": {
+       "Type": "AWS::CloudWatch::Alarm",
+       "Condition": "EmailProvided",
+       "Properties": {
+         "AlarmName": "SnapToolFailed",
+         "AlarmDescription": "Alarm that alerts when the gfs snapshot tool has had an error.",
+         "Namespace": "AWS/Lambda",
+         "MetricName": "Errors",
+         "Dimensions": [{
+           "Name": "FunctionName",
+           "Value": {
+             "Ref": "lambdaFunction"
+           }
+         }],
+         "Statistic": "Minimum",
+         "ComparisonOperator": "GreaterThanThreshold",
+         "Threshold": 0,
+         "Period": 60,
+         "EvaluationPeriods": 1,
+         "AlarmActions": [{
+           "Ref": "SNSTopic"
+         }]
+       }
+     }
+   }
+}

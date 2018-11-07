@@ -62,7 +62,6 @@
       "Email": {
         "Type": "String",
         "Description": "(Optional) Email to notify if script fails",
-        "AllowedPattern": "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
       }
    },
    "Conditions": {

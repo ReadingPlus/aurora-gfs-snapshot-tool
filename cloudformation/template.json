@@ -127,7 +127,9 @@
                      "rds:DeleteDBClusterSnapshot",
                      "rds:DescribeDBClusters",
                      "rds:DescribeDBClusterSnapshots",
-                     "rds:ListTagsForResource"
+                     "rds:ListTagsForResource",
+                     "rds:AddTagsToResource",
+                     "rds:RemoveTagsFromResource"
                    ],
                    "Resource": "*"
                  }

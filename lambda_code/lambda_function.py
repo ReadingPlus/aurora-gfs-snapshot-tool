@@ -71,7 +71,10 @@ def startTool(timeNow):
                     #check if there are snaps to delete
                     snapsToDelete[period['timePeriod']] = checkDeleteNeeded(db, period['timePeriod'], period['retention'])
             else:
-                logger.info("No " + period['timePeriod'] + " retention specified. Skipping.")
+                logger.info("No " + period['timePeriod'] + " retention specified.")
+                # delete any snaps if present
+                deleteAllSnaps(db, period['timePeriod'])
+
 
         if(newSnapPeriod != []):
             createSnap(db, newSnapPeriod)
@@ -116,6 +119,15 @@ def checkDeleteNeeded(db, timePeriod, retention):
         return snaps[:-retention]
     else:
         return []
+
+def deleteAllSnaps(db,timePeriod):
+
+    snaps = getSnaps(db, timePeriod)
+
+    if(snaps is not None):
+        logger.info("Removing any old " + timePeriod + " snapshots.")
+        for snap in snaps:
+            deleteSnap(snap, timePeriod)
 
 def getSnaps(db, timePeriod):
     validSnaps = []
@@ -254,12 +266,12 @@ def deleteSnap(snapToDelete, timePeriod):
                 tags = t['Value'].split(" ")
                 if (len(tags) == 1 and tags[0] == timePeriod):
                     # if the time period specified is the only remaining timeperiod we can delete it
-                    logger.info("Deleting snapshot from RDS.")
+                    logger.info("Deleting snapshot: " + snapToDelete['DBClusterSnapshotIdentifier'] + " from RDS.")
                     #delete from RDS
                     rds.delete_db_cluster_snapshot(DBClusterSnapshotIdentifier=snapToDelete['DBClusterSnapshotArn'])
                 else:
                     # update tag to remove time period
-                    logger.debug("Removing time period tag:" + timePeriod + " from snapshot.")
+                    logger.info("Removing time period tag:" + timePeriod + " from snapshot:" + snapToDelete['DBClusterSnapshotIdentifier'])
                     tags.remove(timePeriod)
                     #rds update tag on snapshot
                     t['Value']= " ".join(tags)

@@ -1,2 +1,5 @@
 cloudformation/packaged-template.json
 lambda_code/snapStore.json
+.idea/
+.DS_Store
+lambda_code/__pycache__/
